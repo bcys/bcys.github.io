@@ -1,0 +1,333 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="Keywords" content="blog"/>
+    <meta name="Description" content="blog"/>
+    <title>Simple</title>
+    <link rel="shortcut icon" href="/static/favicon.png"/>
+    <link rel="stylesheet" type="text/css" href="/main.css" />
+</head>
+<body>
+<div class="main">
+    <div class="header">
+    	<ul id="pages">
+            <li><a href="/">home</a></li>
+            <li><a href="/#/tags">tags</a></li>
+            <li><a href="/#/archive">archive</a></li>
+    	</ul>
+    </div>
+	<div class="wrap-header">
+	<h1>
+    <a href="/" id="title"></a>
+	</h1>
+	</div>
+<div id="md" style="display: none;">
+<!-- markdown -->
+前沿：
+
+一、linux系统启动main函数过程：
+
+              u-boot--> Image --> 根文件系统-->init进程(1)-->exec执行进程-->启动代码{软件部分初始化＋硬件部分初始化} ==> bl main（跳转到main函数)
+ 二、main函数【进程】结束（exit和return）,会做那些事情?
+          1.刷新所有的缓冲区
+          2.关闭所有打开的文件描述符
+          3.调用注册清理函数：int atexit(void (*function)(void));
+                                        通过atexit注册清理函数==>exit/return之后调用清理函数function
+          注：如果调用_exit/_Exit()退出，则不会做以上三件事情
+
+ 三、静态库和动态库
+        静态库：xxx.a(以.a为后缀)
+             1.在编译的时候把相关的库文件一起编译到可执行文件中
+                      1)可执行文件再执行的时候不依赖相关的库文件(静态库的路径可随意改变)
+                      2)可执行文件较大
+                      3)每次升级都需要重新编译（升级不方便)
+             2.制作一个静态库文件过程：
+                      1)gcc -O -c *.c  ==>.o文件(目标文件)
+                      2)ar -rsv xxx.a *.o
+                      3)gcc -o main main.c ./xxx.a(main:可执行文件)
+
+        动态库：xxx.so (以.so为后缀)
+              1.在编译的时候没有把相关的库文件一起编译到可执行文件中
+                     1)可执行文件再执行的时候依赖相关的库文件(动态库的路径不能改变)
+                     2)可执行文件较小
+                     3)每次升级都不需要需要重新编译（升级方便)
+              2.制作一个动态库文件
+                    1)gcc -O -c *.c  ==>.o文件(目标文件)
+                    2)gcc --shared -o xxx.so *.o
+                    3)gcc -o main main.c ./xxx.so(main:可执行文件)
+===================================================================================
+linux 是多进程，多线程，多任务的操作系统
+    一、进程：程序的一次执行过程
+           u-boot ==>Image ==>根文件系统==>init进程(1)
+                      ==>exec执行进程==>启动代码==>main{
+                          fork()创建一个新的进程 ==>exec执行进程==>启动代码==>main{
+                           }
+             }
+    二、进程的操作：
+          1.进程的创建：fork()和vfork()
+
+               1）pid_t fork(void); (pid_t -->int)
+                   fork之后会有两个返回值：
+                         > 0 : 返回的值是新建子进程的ID==>返回给父进程
+                         = 0 : 返回的是子进程
+                         = -1: 错误
+                   父进程fork一个子进程之后，子进程继承父进程的资源空间（几乎所有的，拥有共同的文件表项）==>之后，父，子进程自己拥有独立的资源空间。
+               2）pid_t vfork(void);  功能同fork几乎一样
+               3）不同点：
+                      1.fork : 父进程fork一个子进程之后，子进程继承父进程的资源空间（几乎所有的）==>之后，父，子进程自己拥有独立的资源空间
+                        vfork:父，子进程共享资源空间
+                      2.fork ：父，子进程谁先运行，由内核确定
+                        vfork: 保证子进程先运行
+                                  ==>调用exec执行进程
+                                  ==>所以只有调用exit退出子进程之后父进程才能执行 
+
+     三、进程的执行：exec
+
+           1、进程在调用了exec,会替换掉原本进程的所有数据段 ===>执行新的进程===>main{   }
+           2、exec函数族：
+                  int execl(const char *path, const char *arg, ...);
+
+                  int execlp(const char *file, const char *arg, ...);
+
+                  int execle(const char *path, const char *arg,..., char * const envp[]);
+                  int execv(const char *path, char *const argv[]);
+                  int execvp(const char *file, char *const argv[]);
+
+                          l:表示跟上一系列的参数
+                          p:表示可以自动的去匹配路径，不给必绝对路径
+                          e:表示可以传入环境变量参数数组
+                          v:表示所有的参数可以通过数组传递
+                          path/file: 命令　（绝对路径/相对路径）
+                         arg      : 参数列表
+             3、前面的五个exec函数族都是由execve封装而来的，真正的系统调用是execve：
+                           int execve(const char *filename, char *const argv[],char *const envp[]);
+         四、进程的等待与退出：wait/waitpid，exit/_exit/_Exit和return
+
+             1、pid_t wait(int *status);
+                       功能：等待子进程返回,子进程返回的状态保存在变量status中，如果不关系则填NULL,wait返回所等待的子进程的进程ID
+                       注意：如果父进程不调用wait/waitpid等待子进程返回，回收其资源，则该子进程变成僵尸进程
+
+               僵尸进程：进程结束之后，其所占用的资源没有被释放，则称之为僵尸进程
+              2、pid_t waitpid(pid_t pid, int *status, int options);
+                      eg:waitpid(-1, &status, 0);  //功能和wait是一样的
+         五、进程的其他操作和定义：
+             1、进程的几种状态：
+                       1）.等待/就绪态
+                       2）.运行态
+                       3.）终止态
+                       4.）僵尸态
+             2、pid_t getpid(void); 
+                          :获取本进程的进程ID
+                   pid_t getppid(void);
+                         :获取本进程的父进程ID
+             3、进程间切换条件：(子进程切换到父进程)
+                   1）.时间片结束
+                   2.）子进程执行结束
+                   3.）子进程被阻塞
+                   4.）子进程被中断
+                   5.）被优先级高（父进程）抢占
+            注意：保护现场(目的是能切换回来)
+            4、通过status中的值可以判断子进程退出的状态:
+                    WIFEXITED(status)；
+                          正常返回，返回的值由子进程中exit/_exit/return返回的值确定
+                    WEXITSTATUS(status)
+                          :获取返回的值
+                   WIFSIGNALED(status)
+                          :被信号打断
+                  WTERMSIG(status)
+                          :获取到打断该子进程的信号
+<!-- markdown end -->
+</div>
+<div class="entry" id="main">
+<!-- content -->
+<p>前沿：</p>
+
+<p>一、linux系统启动main函数过程：</p>
+
+<pre><code>          u-boot--&gt; Image --&gt; 根文件系统--&gt;init进程(1)--&gt;exec执行进程--&gt;启动代码{软件部分初始化＋硬件部分初始化} ==&gt; bl main（跳转到main函数)
+</code></pre>
+
+<p>二、main函数【进程】结束（exit和return）,会做那些事情?
+          1.刷新所有的缓冲区
+          2.关闭所有打开的文件描述符
+          3.调用注册清理函数：int atexit(void (*function)(void));
+                                        通过atexit注册清理函数==&gt;exit/return之后调用清理函数function
+          注：如果调用<em>exit/</em>Exit()退出，则不会做以上三件事情</p>
+
+<p>三、静态库和动态库
+        静态库：xxx.a(以.a为后缀)
+             1.在编译的时候把相关的库文件一起编译到可执行文件中
+                      1)可执行文件再执行的时候不依赖相关的库文件(静态库的路径可随意改变)
+                      2)可执行文件较大
+                      3)每次升级都需要重新编译（升级不方便)
+             2.制作一个静态库文件过程：
+                      1)gcc -O -c *.c  ==&gt;.o文件(目标文件)
+                      2)ar -rsv xxx.a *.o
+                      3)gcc -o main main.c ./xxx.a(main:可执行文件)</p>
+
+<pre><code>    动态库：xxx.so (以.so为后缀)
+          1.在编译的时候没有把相关的库文件一起编译到可执行文件中
+                 1)可执行文件再执行的时候依赖相关的库文件(动态库的路径不能改变)
+                 2)可执行文件较小
+                 3)每次升级都不需要需要重新编译（升级方便)
+          2.制作一个动态库文件
+                1)gcc -O -c *.c  ==&gt;.o文件(目标文件)
+                2)gcc --shared -o xxx.so *.o
+</code></pre>
+
+<h1 id="3gccomainmaincxxxsomain">                    3)gcc -o main main.c ./xxx.so(main:可执行文件)</h1>
+
+<p>linux 是多进程，多线程，多任务的操作系统
+    一、进程：程序的一次执行过程
+           u-boot ==&gt;Image ==&gt;根文件系统==&gt;init进程(1)
+                      ==&gt;exec执行进程==&gt;启动代码==&gt;main{
+                          fork()创建一个新的进程 ==&gt;exec执行进程==&gt;启动代码==&gt;main{
+                           }
+             }
+    二、进程的操作：
+          1.进程的创建：fork()和vfork()</p>
+
+<pre><code>           1）pid_t fork(void); (pid_t --&gt;int)
+               fork之后会有两个返回值：
+                     &gt; 0 : 返回的值是新建子进程的ID==&gt;返回给父进程
+                     = 0 : 返回的是子进程
+                     = -1: 错误
+               父进程fork一个子进程之后，子进程继承父进程的资源空间（几乎所有的，拥有共同的文件表项）==&gt;之后，父，子进程自己拥有独立的资源空间。
+           2）pid_t vfork(void);  功能同fork几乎一样
+           3）不同点：
+                  1.fork : 父进程fork一个子进程之后，子进程继承父进程的资源空间（几乎所有的）==&gt;之后，父，子进程自己拥有独立的资源空间
+                    vfork:父，子进程共享资源空间
+                  2.fork ：父，子进程谁先运行，由内核确定
+                    vfork: 保证子进程先运行
+                              ==&gt;调用exec执行进程
+                              ==&gt;所以只有调用exit退出子进程之后父进程才能执行 
+
+ 三、进程的执行：exec
+
+       1、进程在调用了exec,会替换掉原本进程的所有数据段 ===&gt;执行新的进程===&gt;main{   }
+       2、exec函数族：
+              int execl(const char *path, const char *arg, ...);
+
+              int execlp(const char *file, const char *arg, ...);
+
+              int execle(const char *path, const char *arg,..., char * const envp[]);
+              int execv(const char *path, char *const argv[]);
+              int execvp(const char *file, char *const argv[]);
+
+                      l:表示跟上一系列的参数
+                      p:表示可以自动的去匹配路径，不给必绝对路径
+                      e:表示可以传入环境变量参数数组
+                      v:表示所有的参数可以通过数组传递
+                      path/file: 命令　（绝对路径/相对路径）
+                     arg      : 参数列表
+         3、前面的五个exec函数族都是由execve封装而来的，真正的系统调用是execve：
+                       int execve(const char *filename, char *const argv[],char *const envp[]);
+     四、进程的等待与退出：wait/waitpid，exit/_exit/_Exit和return
+
+         1、pid_t wait(int *status);
+                   功能：等待子进程返回,子进程返回的状态保存在变量status中，如果不关系则填NULL,wait返回所等待的子进程的进程ID
+                   注意：如果父进程不调用wait/waitpid等待子进程返回，回收其资源，则该子进程变成僵尸进程
+
+           僵尸进程：进程结束之后，其所占用的资源没有被释放，则称之为僵尸进程
+          2、pid_t waitpid(pid_t pid, int *status, int options);
+                  eg:waitpid(-1, &amp;status, 0);  //功能和wait是一样的
+     五、进程的其他操作和定义：
+         1、进程的几种状态：
+                   1）.等待/就绪态
+                   2）.运行态
+                   3.）终止态
+                   4.）僵尸态
+         2、pid_t getpid(void); 
+                      :获取本进程的进程ID
+               pid_t getppid(void);
+                     :获取本进程的父进程ID
+         3、进程间切换条件：(子进程切换到父进程)
+               1）.时间片结束
+               2.）子进程执行结束
+               3.）子进程被阻塞
+               4.）子进程被中断
+               5.）被优先级高（父进程）抢占
+        注意：保护现场(目的是能切换回来)
+        4、通过status中的值可以判断子进程退出的状态:
+                WIFEXITED(status)；
+                      正常返回，返回的值由子进程中exit/_exit/return返回的值确定
+                WEXITSTATUS(status)
+                      :获取返回的值
+               WIFSIGNALED(status)
+                      :被信号打断
+              WTERMSIG(status)
+                      :获取到打断该子进程的信号
+</code></pre>
+<!-- content end -->
+</div>
+<br>
+<br>
+    <div id="disqus_thread"></div>
+	<div class="footer">
+		<p>© Copyright 2014 by isnowfy, Designed by isnowfy</p>
+	</div>
+</div>
+<script src="main.js"></script>
+<script src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+<script type="text/x-mathjax-config">
+    MathJax.Hub.Config({tex2jax: {inlineMath: [['$','$'], ["\\(", "\\)"]], processEscapes: true}});
+</script>
+<script id="content" type="text/mustache">
+    <h1>{{title}}</h1>
+    <div class="tag">
+    {{date}}
+    {{#tags}}
+    <a href="/#/tag/{{name}}">#{{name}}</a>
+    {{/tags}}
+    </div>
+</script>
+<script id="pagesTemplate" type="text/mustache">
+    {{#pages}}
+    <li>
+        <a href="{{path}}">{{title}}</a>
+    </li>
+    {{/pages}}
+</script>
+<script>
+$(document).ready(function() {
+    $.ajax({
+        url: "main.json",
+        type: "GET",
+        dataType: "json",
+        success: function(data) {
+            $("#title").html(data.name);
+            var pagesTemplate = Hogan.compile($("#pagesTemplate").html());
+            var pagesHtml = pagesTemplate.render({"pages": data.pages});
+            $("#pages").append(pagesHtml);
+            //path
+            var path = "linux-pid.html";
+            //path end
+            var now = 0;
+            for (var i = 0; i < data.posts.length; ++i)
+                if (path == data.posts[i].path)
+                    now = i;
+            var post = data.posts[now];
+            var tmp = post.tags.split(" ");
+            var tags = [];
+            for (var i = 0; i < tmp.length; ++i)
+                if (tmp[i].length > 0)
+                    tags.push({"name": tmp[i]});
+            var contentTemplate = Hogan.compile($("#content").html());
+            var contentHtml = contentTemplate.render({"title": post.title, "tags": tags, "date": post.date});
+            $("#main").prepend(contentHtml);
+            if (data.disqus_shortname.length > 0) {
+                var disqus_shortname = data.disqus_shortname;
+                (function() {
+                    var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+                    dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+                    (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+                })();
+            }
+        }
+    });
+});
+</script>
+</body>
+</html>
